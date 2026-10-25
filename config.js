@@ -1,0 +1,4 @@
+window.NAIJA_COURT_CONFIG = {
+  supabaseUrl: "https://fruuuemyhghlrkfahmlt.supabase.co",
+  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZydXV1ZW15aGdobHJrZmFobWx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE2NDExNjMsImV4cCI6MjEwNzIxNzE2M30.vzH6mhKtenFGhJ6rNBWZDISF4D3K81LxoTy6B5t2ACA"
+};
