@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Naija Court</title>
+<style>
+:root{--bg:#08110f;--panel:#101d19;--green:#00a86b;--gold:#e6bd62;--text:#f4f4ef;--muted:#aab8b1;--line:#294138}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#17352a,#08110f 60%);font:16px/1.5 system-ui,sans-serif;color:var(--text)}
+header{padding:17px max(18px,calc((100% - 980px)/2));border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;background:#07100edb;position:sticky;top:0}
+.brand{font-weight:900;letter-spacing:.06em}.brand span{color:var(--gold)}main{max-width:980px;margin:auto;padding:28px 18px 60px}
+.hero{padding:18px 0 28px}.eyebrow{color:var(--gold);font-size:.75rem;letter-spacing:.16em;font-weight:800;text-transform:uppercase}
+h1{font-size:clamp(2.5rem,7vw,4.6rem);line-height:.98;letter-spacing:-.06em;margin:8px 0 14px}h1 em{color:var(--gold);font-style:normal}p,.muted{color:var(--muted)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.panel{background:linear-gradient(145deg,#13251e,#0d1714);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:16px}
+h2{font-size:1.2rem;margin:0 0 8px}.field{display:grid;gap:5px;margin:12px 0}.field label{font-size:.88rem;font-weight:700}.field input,.field select,.field textarea{width:100%;padding:11px;border:1px solid var(--line);border-radius:9px;background:#07110e;color:var(--text);font:inherit}.field textarea{min-height:82px}
+button{padding:10px 14px;border-radius:9px;border:1px solid var(--line);background:#14251e;color:var(--text);font-weight:750;cursor:pointer;margin:4px 5px 4px 0}button.primary{background:var(--green);border-color:var(--green);color:#04130d}button:disabled{opacity:.45;cursor:not-allowed}
+.tabs{display:flex;flex-wrap:wrap;gap:5px;margin:18px 0}.tab.active{background:var(--green);color:#04130d}
+.case{border:1px solid var(--line);border-radius:11px;padding:13px;margin:10px 0;background:#0a1511}.status{font-size:.75rem;color:var(--gold);border:1px solid #66552e;border-radius:99px;padding:2px 8px;display:inline-block}
+.hidden{display:none!important}.msg{min-height:23px;color:var(--gold);font-size:.9rem}.small{font-size:.8rem}.footer{border-top:1px solid var(--line);padding-top:18px;margin-top:30px;font-size:.8rem;color:var(--muted)}
+@media(max-width:700px){.grid{grid-template-columns:1fr}header{padding:14px 18px}}
+
+label{display:grid;gap:5px;margin:12px 0;font-size:.88rem;font-weight:700}
+label input,label select,label textarea{width:100%;padding:11px;border:1px solid var(--line);border-radius:9px;background:#07110e;color:var(--text);font:inherit;font-weight:400}
+label textarea{min-height:82px}.chk{display:flex;align-items:center;gap:8px}.chk input{width:auto}
+a{color:var(--gold)}a.case{display:block;text-decoration:none;color:var(--text)}
+.mut{color:var(--muted);font-size:.9rem}.arg{border-left:3px solid var(--gold);padding-left:10px;margin:10px 0}
+.verdict{border-color:var(--gold);text-align:center}button.red{background:#b4443b;border-color:#b4443b;color:#fff}
+.row{display:flex;gap:6px;flex-wrap:wrap}.ghost{background:none}
+#toast{position:fixed;left:12px;right:12px;bottom:12px;padding:12px 14px;border-radius:10px;background:var(--green);color:#04130d;font-weight:700;display:none;z-index:9}
+#toast.bad{background:#b4443b;color:#fff}
+</style></head>
+<body>
+<div id="app"><main><p>Loading court…</p></main></div>
+<div id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+// ---- Config: the key must be the PUBLISHABLE / anon key only. Never the service_role key. ----
+const CFG={url:'https://gywrvnvbsboyxknuajmh.supabase.co',key:'sb_publishable_4y7wiDNQTcDuSgtFwhb3bg_lx9VitOt'};
+const CATS={money:'Money wahala',friendship:'Friendship drama',relationship:'Relationship matter',food:'Stolen food (suya!)',promise:'Broken promise',property:'Property / borrowed things',other:'Miscellaneous'};
+const STATUS={awaiting_response:'Awaiting response',in_progress:'In progress',awaiting_judgment:'Before the jury',decided:'Decided',dismissed:'Dismissed'};
+const $=s=>document.querySelector(s),app=$('#app');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let sb,me=null,me_name='',me_wallet=0,recovering=false;
+
+function toast(m,bad){const t=$('#toast');t.textContent=m;t.className=bad?'bad':'';t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',4500)}
+window.addEventListener('error',e=>toast('Script error: '+e.message,1));
+window.addEventListener('unhandledrejection',e=>toast(e.reason?.message||String(e.reason),1));
+const must=r=>{if(r.error)throw r.error;return r.data};
+const rpc=(fn,a)=>sb.rpc(fn,a).then(must);
+async function act(btn,fn){if(btn)btn.disabled=true;try{await fn()}catch(e){toast(e.message||'Something went wrong',1)}finally{if(btn)btn.disabled=false}}
+
+function shell(inner){
+  const h=location.hash.replace(/^#\/?/,''),tab=(g,l)=>`<button class="tab${g===h?' active':''}" onclick="location.hash='#/${g}'">${l}</button>`;
+  app.innerHTML=`<header><div class="brand">⚖ NAIJA<span> COURT</span></div><div class="muted small">${me?`@${esc(me_name)} · ₦${Number(me_wallet).toLocaleString()}`:'Not signed in'}</div></header>
+  <main>${me?`<nav class="tabs">${tab('','My cases')}${tab('new','File a case')}${tab('leaders','🏆 Leaders')}<button id="out">Sign out</button></nav>`:''}${inner}
+  <div class="footer">Naija Court is fictional entertainment, not legal advice, a court filing service, or a way to compel anyone to hire a real lawyer. Judgments are for fun only. Do not post personal data, threats, or real allegations about identifiable people.</div></main>`;
+  const o=$('#out');if(o)o.onclick=()=>sb.auth.signOut();
+}
+
+// ---- Auth ----
+function authView(mode){
+  const t={signin:'Enter court',signup:'Create account',forgot:'Reset password'}[mode];
+  const pw=mode!=='forgot';
+  shell(`<section class="hero"><div class="eyebrow">The multiplayer courtroom</div><h1>SUE.<br><em>DEFEND.</em><br>WIN.</h1><p>Invite a real player, file a fictional case, and take the argument to court. Game currency only. No real legal consequences.</p></section>
+  <section class="grid"><form id="f" class="panel" novalidate><h2>${t}</h2>
+  ${mode==='signup'?'<label>Username (3–20 letters, numbers, _)<input name="username" autocomplete="username" maxlength="20"></label>':''}
+  <label>Email<input name="email" type="email" autocomplete="email"></label>
+  ${pw?`<label>Password<input name="password" type="password" autocomplete="${mode==='signup'?'new-password':'current-password'}"></label>`:''}
+  ${mode==='signup'?'<label>Confirm password<input name="confirm" type="password" autocomplete="new-password"></label>':''}
+  ${pw?'<label class="chk"><input type="checkbox" id="sp"> Show password</label>':''}
+  <button class="primary" id="go">${t}</button>
+  <p class="mut">${mode==='signin'?'New here? <a href="#signup">Create account</a> · <a href="#forgot">Forgot password?</a>':'<a href="#signin">Back to sign in</a>'}</p></form><div class="panel"><h2>How it works</h2><p>1. Create an account and username.</p><p>2. File a case against another player (₦5,000 filing fee).</p><p>3. The defendant accepts or declines the summons.</p><p>4. Both sides argue.</p><p>5. Other players form the jury and judgment is delivered. The winner takes ₦4,000 of the fee.</p></div></section>`);
+  const sp=$('#sp');if(sp)sp.onchange=()=>document.querySelectorAll('input[type=password],input[data-pw]').forEach(i=>{i.type=sp.checked?'text':'password';i.dataset.pw=1});
+  $('#f').onsubmit=e=>{e.preventDefault();act($('#go'),async()=>{
+    const f=Object.fromEntries(new FormData(e.target));const email=(f.email||'').trim();
+    if(!/^\S+@\S+\.\S+$/.test(email))throw new Error('Enter a valid email address.');
+    if(mode==='forgot'){must(await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname}));toast('Check your email for the reset link.');return}
+    if(!f.password)throw new Error('Enter your password.');
+    if(mode==='signin'){const {error}=await sb.auth.signInWithPassword({email,password:f.password});if(error)throw new Error(error.message==='Invalid login credentials'?'Wrong email or password.':error.message);return}
+    const u=(f.username||'').trim();
+    if(!/^[A-Za-z0-9_]{3,20}$/.test(u))throw new Error('Username must be 3–20 letters, numbers or underscores.');
+    if(f.password.length<8||!/\d/.test(f.password)||!/[A-Za-z]/.test(f.password))throw new Error('Password needs 8+ characters with a letter and a number.');
+    if(f.password!==f.confirm)throw new Error('Passwords do not match.');
+    if(!(await rpc('username_available',{p_name:u})))throw new Error('That username is taken.');
+    const {data,error}=await sb.auth.signUp({email,password:f.password,options:{data:{username:u}}});
+    if(error)throw new Error(/registered/i.test(error.message)?'That email already has an account. Sign in instead.':error.message);
+    if(data.user&&data.user.identities&&data.user.identities.length===0)throw new Error('That email already has an account. Sign in instead.');
+    if(!data.session){shell(`<div class="panel"><h2>Check your email</h2><p>We sent a confirmation link to ${esc(email)}. Open it, then sign in.</p></div>`)}
+  })};
+}
+function recoverView(){
+  shell(`<form id="f" class="panel"><h2>Set a new password</h2><label>New password<input name="p" type="password" autocomplete="new-password"></label><button class="primary" id="go">Save password</button></form>`);
+  $('#f').onsubmit=e=>{e.preventDefault();act($('#go'),async()=>{const p=new FormData(e.target).get('p');
+    if(p.length<8)throw new Error('Password needs 8+ characters.');
+    must(await sb.auth.updateUser({password:p}));recovering=false;toast('Password updated.');location.hash='#/';route()})};
+}
+
+// ---- Game views ----
+const nm=c=>`${esc(c.plaintiff?.username)} v ${esc(c.defendant?.username)}`;
+const SEL='*,plaintiff:profiles!cases_plaintiff_id_fkey(username),defendant:profiles!cases_defendant_id_fkey(username)';
+function caseCard(c){return `<a class="panel case" href="#/case/${c.id}"><span class="status">${STATUS[c.status]||c.status}</span> <span class="mut">#${c.case_no} · ${CATS[c.category]}</span><h3 style="margin:.3em 0">${esc(c.title)}</h3><span class="mut">${nm(c)}</span></a>`}
+
+async function dashboard(){
+  if(!quiet)shell('<p>Loading…</p>');
+  const [cases,notes,blocked]=await Promise.all([
+    sb.from('cases').select(SEL).order('created_at',{ascending:false}).then(must),
+    sb.from('notifications').select('*').eq('read',false).order('created_at',{ascending:false}).limit(8).then(must),
+    sb.from('blocks').select('blocked:profiles!blocks_blocked_id_fkey(username)').then(must)]);
+  const mine=cases.filter(c=>c.plaintiff_id===me.id||c.defendant_id===me.id);
+  const jury=cases.filter(c=>c.status==='awaiting_judgment'&&!mine.includes(c));
+  shell(`<h2>Court is now in session, ${esc(me_name)}</h2>
+  <button class="primary" onclick="location.hash='#/new'">File a new case (₦5,000)</button>
+  ${notes.length?`<div class="panel"><b>Notifications</b>${notes.map(n=>`<p><a href="#/case/${n.case_id}" data-n="${n.id}">${esc(n.message)}</a></p>`).join('')}</div>`:''}
+  <h2>My cases</h2>${mine.map(caseCard).join('')||'<p class="mut">No cases yet. File one!</p>'}
+  <h2>Jury docket</h2><p class="mut">Cases waiting for jurors. Cast your vote.</p>${jury.map(caseCard).join('')||'<p class="mut">Nothing waiting right now.</p>'}${blocked.length?`<h2>Blocked players</h2><div class="panel">${blocked.map(b=>`<p>@${esc(b.blocked.username)} <button class="ghost" data-ub="${esc(b.blocked.username)}">Unblock</button></p>`).join('')}</div>`:''}`);
+  document.querySelectorAll('[data-n]').forEach(a=>a.onclick=()=>sb.from('notifications').update({read:true}).eq('id',a.dataset.n).then(()=>{}));
+  document.querySelectorAll('[data-ub]').forEach(b=>b.onclick=()=>act(b,async()=>{await rpc('unblock_user',{p_username:b.dataset.ub});toast('Unblocked.');dashboard()}));
+}
+
+async function leaders(){
+  const rows=await rpc('get_leaderboard');
+  shell(`<h2>🏆 Leaderboard</h2><p class="mut">Ranked by cases won.</p><div class="panel">${rows.length?rows.map((r,i)=>`<p><b>${i+1}. @${esc(r.username)}</b> · ${r.wins} won / ${r.played} played</p>`).join(''):'<p class="mut">No judgments yet. File a case and be the first!</p>'}</div>`);
+}
+
+function newCase(){
+  shell(`<form id="f" class="panel"><h2>File a case</h2>
+  <label>Defendant's username<input name="d" autocapitalize="off"></label>
+  <label>Case title<input name="t" maxlength="120" placeholder="The Case of the Missing Suya"></label>
+  <label>Category<select name="c">${Object.entries(CATS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>
+  <label>What happened? (your allegation)<textarea name="s" rows="5" maxlength="2000"></textarea></label>
+  <label>What do you want as remedy?<input name="r" maxlength="300" placeholder="Refund + public apology"></label>
+  <p class="mut">Filing fee: ₦5,000 from your wallet (balance ₦${Number(me_wallet).toLocaleString()}). Allegations are claims, not proven facts. Keep it fun and respectful.</p>
+  <button class="primary" id="go">Pay ₦5,000 &amp; summon defendant</button></form>`);
+  $('#f').onsubmit=e=>{e.preventDefault();act($('#go'),async()=>{const f=Object.fromEntries(new FormData(e.target));
+    const id=await rpc('file_case',{p_defendant:f.d.trim(),p_title:f.t.trim(),p_category:f.c,p_description:f.s.trim(),p_remedy:f.r.trim()});
+    toast('The defendant has been summoned.');location.hash='#/case/'+id})};
+}
+
+async function signEv(rows){
+  if(!rows.length)return rows;
+  const {data}=await sb.storage.from('evidence').createSignedUrls(rows.map(r=>r.path),3600);
+  return rows.map((r,i)=>({...r,url:data?.[i]?.signedUrl||''}));
+}
+async function caseView(id){
+  if(!quiet)shell('<p>Loading…</p>');
+  const c=await sb.from('cases').select(SEL).eq('id',id).maybeSingle().then(must);
+  if(!c)return shell('<div class="panel">Case not found, or it is private.</div>');
+  const [args,evs,j,votes,evraw]=await Promise.all([
+    sb.from('case_arguments').select('*,author:profiles!case_arguments_author_id_fkey(username)').eq('case_id',id).order('created_at').then(must),
+    sb.from('case_events').select('*').eq('case_id',id).order('created_at').then(must),
+    sb.from('judgments').select('*').eq('case_id',id).maybeSingle().then(must),
+    sb.from('case_votes').select('voter_id,side').eq('case_id',id).then(must),
+    sb.from('case_evidence').select('*,uploader:profiles!case_evidence_uploader_id_fkey(username)').eq('case_id',id).order('created_at').then(must)]);
+  const ev=await signEv(evraw);
+  const isP=c.plaintiff_id===me.id,isD=c.defendant_id===me.id,party=isP||isD,voted=votes.some(v=>v.voter_id===me.id);
+  let actions='';
+  if(isD&&c.status==='awaiting_response')actions=`<div class="panel"><b>You don been summoned.</b><div class="row"><button class="primary" data-a="acc">Accept summons</button><button class="red" data-a="dec">Decline</button></div></div>`;
+  else if(party&&c.status==='in_progress')actions=`<form id="af" class="panel"><label>Counsel, present your case<textarea name="b" rows="4" maxlength="1500"></textarea></label><button class="primary" id="ab">Submit argument</button><button type="button" class="ghost" data-a="rest">Rest my case (send to jury)</button></form>`;
+  else if(party&&c.status==='awaiting_judgment')actions=`<div class="panel"><b>The jury is deliberating</b><p class="muted small">${votes.length} of 3 votes cast. Other players (not you) must vote, then a juror taps Deliver judgment.</p></div>`;
+  else if(!party&&c.status==='awaiting_judgment')actions=`<div class="panel"><b>Jury box</b><p class="muted small">${votes.length} vote(s) cast. Judgment needs at least 3.</p>${voted?'<p>You have voted.</p>':`<div class="row"><button class="primary" data-a="vc">Plaintiff is right</button><button class="primary" data-a="vd">Defendant is right</button></div>`}<button class="ghost" data-a="jdg">Deliver judgment</button></div>`;
+  const upPanel=party&&c.status==='in_progress'?`<div class="panel"><b>Add evidence</b>
+  <label>Caption (optional)<input id="ecap" maxlength="200"></label>
+  <label>Photo or screenshot<input id="efile" type="file" accept="image/jpeg,image/png,image/webp"></label>
+  <button type="button" class="ghost" id="erec">🎙 Record audio</button>
+  <p class="muted small">Images up to 10 MB. Voice notes up to 5 minutes, handy when the story is too long to type. Only the two players (and jurors, once the case reaches them) can see evidence.</p></div>`:'';
+  const evHtml=ev.map(e=>`<div class="arg"><b>${esc(e.uploader.username)}</b> <span class="muted small">${e.kind==='audio'?'🎙 voice note':'📷 image'}</span>${e.caption?`<br>${esc(e.caption)}`:''}<br>${e.kind==='audio'?`<audio controls preload="none" src="${esc(e.url)}" style="width:100%;margin-top:6px"></audio>`:`<img src="${esc(e.url)}" alt="evidence" style="max-width:100%;border-radius:8px;margin-top:6px">`}</div>`).join('')||'<p class="muted">No evidence yet.</p>';
+  const other=isP?c.defendant.username:c.plaintiff.username;
+  const loser=j&&party&&!c.appealed_by&&c.status==='decided'&&j.winner!=='draw'&&((j.winner==='claimant'&&isD)||(j.winner==='defendant'&&isP));
+  const appealPanel=loser?`<div class="panel"><b>Not happy with the verdict?</b><p class="muted small">Appeal for ₦3,000. The case goes back to the jury for a fresh vote. One appeal per case. If you win the appeal, you get the ₦4,000 prize.</p><button class="primary" data-a="appeal">Appeal verdict (₦3,000)</button></div>`:'';
+  const winner=j&&{claimant:c.plaintiff.username,defendant:c.defendant.username,draw:'Nobody (draw)'}[j.winner];
+  const appSide=c.appealed_by===c.plaintiff_id?'claimant':'defendant';
+  const prize=j&&(c.appealed_by?(j.winner===appSide?`Appeal succeeded: ${winner} wins ₦4,000.`:j.winner==='draw'?'Appeal ended in a draw. No payout.':'Appeal rejected. The original verdict stands.'):j.winner==='draw'?'Draw: the plaintiff is refunded ₦4,000.':`${winner} wins ₦4,000 from the filing fee.`);
+  shell(`<span class="status">${STATUS[c.status]||c.status}</span>${c.appealed_by?' <span class="status">Appealed</span>':''} <span class="muted small">Case #${c.case_no} · ${CATS[c.category]}</span>
+  <h2>${esc(c.title)}</h2><p class="muted small">${nm(c)}</p>
+  ${party?`<p class="row"><button class="ghost" data-a="rep">🚩 Report @${esc(other)}</button><button class="ghost" data-a="blk">🚫 Block @${esc(other)}</button></p>`:''}
+  <div class="panel"><b>Allegation (not proven fact)</b><p>${esc(c.description)}</p><b>Remedy sought</b><p>${esc(c.remedy)}</p></div>
+  ${j?`<div class="panel verdict"><h2>⚖️ Judgment</h2><h3>Winner: ${esc(winner)}</h3><p>${j.claimant_votes} – ${j.defendant_votes}</p><p>${esc(j.reasoning)}</p><p><b>${esc(prize)}</b></p><button class="ghost" id="sh">Share summary</button></div>`:''}
+  ${actions}${upPanel}${appealPanel}
+  <h3>Evidence</h3>${evHtml}
+  <h3>Arguments</h3>${args.map(a=>`<div class="arg"><b>${esc(a.author.username)}</b><br>${esc(a.body)}</div>`).join('')||'<p class="muted">None yet.</p>'}
+  <h3>Case history</h3>${evs.map(e=>`<p class="muted small">${new Date(e.created_at).toLocaleString()} · ${esc(e.event)}</p>`).join('')}`);
+  const run=(btn,fn,msg)=>act(btn,async()=>{await fn();if(msg)toast(msg);caseView(id)});
+  document.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{const a=b.dataset.a;
+    if(a==='acc')run(b,()=>rpc('respond_case',{p_case:id,p_accept:true}),'Court is now in session.');
+    if(a==='dec')run(b,()=>rpc('respond_case',{p_case:id,p_accept:false}));
+    if(a==='rest')run(b,()=>rpc('rest_case',{p_case:id}));
+    if(a==='vc'||a==='vd')run(b,()=>rpc('cast_vote',{p_case:id,p_side:a==='vc'?'claimant':'defendant'}),'Vote recorded.');
+    if(a==='jdg')run(b,()=>rpc('deliver_judgment',{p_case:id}),'Judgment has been delivered.');
+    if(a==='appeal')run(b,()=>rpc('appeal_case',{p_case:id}),'Appeal filed. The jury will vote again.');
+    if(a==='rep'){const r=prompt('Why are you reporting @'+other+'? (at least 5 characters)');if(r)run(b,()=>rpc('report_user',{p_username:other,p_case:id,p_reason:r.trim()}),'Report sent. Thank you.')}
+    if(a==='blk'){if(confirm('Block @'+other+'? Neither of you will be able to file cases against the other.'))run(b,()=>rpc('block_user',{p_username:other}),'Player blocked.')}});
+  const af=$('#af');if(af)af.onsubmit=e=>{e.preventDefault();run($('#ab'),()=>rpc('submit_argument',{p_case:id,p_body:new FormData(af).get('b').trim()}),'Evidence submitted.')};
+  const up=async(blob,kind,ext,type)=>{
+    if(blob.size>10*1048576)throw new Error('File is too big (max 10 MB).');
+    const path=`${id}/${me.id}/${crypto.randomUUID()}.${ext}`;
+    const {error}=await sb.storage.from('evidence').upload(path,blob,{contentType:type});if(error)throw error;
+    await rpc('add_evidence',{p_case:id,p_kind:kind,p_path:path,p_caption:($('#ecap')?.value||'').trim()});
+  };
+  const ef=$('#efile');if(ef)ef.onchange=()=>{const f=ef.files[0];if(!f)return;
+    const ext={'image/jpeg':'jpg','image/png':'png','image/webp':'webp'}[f.type];
+    if(!ext)return toast('Use a JPG, PNG or WebP image.',1);
+    run(null,()=>up(f,'image',ext,f.type),'Evidence submitted.')};
+  const rb=$('#erec');if(rb)rb.onclick=async()=>{
+    if(rec){rec.stop();return}
+    try{const st=await navigator.mediaDevices.getUserMedia({audio:true});
+      const type=MediaRecorder.isTypeSupported('audio/webm')?'audio/webm':'audio/mp4',chunks=[],r=new MediaRecorder(st,{mimeType:type});rec=r;
+      r.ondataavailable=e=>chunks.push(e.data);
+      r.onstop=()=>{st.getTracks().forEach(t=>t.stop());clearTimeout(r.t);rec=null;
+        run(null,()=>up(new Blob(chunks,{type}),'audio',type==='audio/webm'?'webm':'m4a',type),'Voice note submitted.')};
+      r.start();rb.textContent='⏹ Stop and submit';r.t=setTimeout(()=>r.state==='recording'&&r.stop(),300000);
+    }catch(e){toast('Microphone not available: '+e.message,1)}};
+  const sh=$('#sh');if(sh)sh.onclick=async()=>{const t=`Naija Court: ${c.title}. ${prize} For fun only!`;
+    try{navigator.share?await navigator.share({text:t,url:location.href}):(await navigator.clipboard.writeText(t+' '+location.href),toast('Summary copied.'))}catch(_){}};
+}
+
+// ---- Router / boot ----
+let live=null,quiet=false,tmr=null,rec=null;
+function startLive(){
+  if(live)return;
+  const kick=()=>{clearTimeout(tmr);tmr=setTimeout(async()=>{
+    const h=location.hash.replace(/^#\/?/,''),el=document.activeElement;
+    if(h==='new'||rec||(el&&/INPUT|TEXTAREA|SELECT/.test(el.tagName)))return;
+    quiet=true;try{await route()}finally{quiet=false}},700)};
+  live=sb.channel('naija-live').on('postgres_changes',{event:'*',schema:'public'},kick).subscribe();
+  live.poll=setInterval(kick,30000);
+}
+function stopLive(){if(live){clearInterval(live.poll);sb.removeChannel(live);live=null}}
+
+async function route(){
+  if(recovering)return recoverView();
+  const h=location.hash.replace(/^#\/?/,'');
+  if(!me){stopLive();return authView(h==='signup'?'signup':h==='forgot'?'forgot':'signin')}
+  try{
+    {const p=await sb.from('profiles').select('username,wallet').eq('id',me.id).maybeSingle().then(must);me_name=p?.username||'player';me_wallet=p?.wallet??0}
+    startLive();if(h==='new')return newCase();if(h==='leaders')return leaders();
+    if(h.startsWith('case/'))return await caseView(h.slice(5));
+    await dashboard();
+  }catch(e){shell(`<div class="panel"><b>Could not load.</b><p>${esc(e.message)}</p><p class="mut">Has the SQL migration been applied?</p></div>`)}
+}
+window.addEventListener('hashchange',route);
+(async function boot(){
+  if(!window.supabase)return shell('<div class="panel"><b>Supabase library failed to load.</b><p class="mut">Check your connection or content blockers.</p></div>');
+  if(CFG.key.startsWith('PASTE_'))return shell('<div class="panel"><b>Setup needed:</b> open index.html and set CFG.key to your Supabase publishable (anon) key.</div>');
+  sb=supabase.createClient(CFG.url,CFG.key);
+  const {data}=await sb.auth.getSession();me=data.session?.user||null;
+  sb.auth.onAuthStateChange((ev,s)=>setTimeout(()=>{
+    if(ev==='PASSWORD_RECOVERY')recovering=true;
+    const u=s?.user||null;if(!u)me_name='';
+    if(ev==='TOKEN_REFRESHED'&&u&&me&&u.id===me.id)return;
+    me=u;route()},0));
+  route();
+})();
+</script>
+</body></html>
