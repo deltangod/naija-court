@@ -106,6 +106,7 @@ header,body.court header{background:#08110f!important;backdrop-filter:none!impor
 .anim .drift{animation:drift 22s ease-in-out infinite alternate}
 @keyframes drift{from{transform:translateX(-90px)}to{transform:translateX(110px)}}
 @media (prefers-reduced-motion:reduce){.anim *{animation:none!important}}
+.mapvid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;pointer-events:none}.mapimg.vid .mapvid{opacity:1}.mapimg.vid .anim{display:none}
 </style></head>
 <body>
 <div id="app"><main><p>Loading court…</p></main></div>
@@ -356,6 +357,20 @@ function animSvg(){
   <g class="drift" style="animation-duration:34s;animation-direction:alternate-reverse"><ellipse cx="1180" cy="1060" rx="400" ry="75" fill="url(#mistg)"/></g>
   ${birds}${rips}${drops}</svg>`;
 }
+let MV=null;
+function attachVideo(){
+  const box=document.querySelector('.mapimg');if(!box||MV===false)return;
+  if(navigator.connection?.saveData||matchMedia('(prefers-reduced-motion:reduce)').matches){MV=false;return}
+  if(!MV){
+    MV=document.createElement('video');MV.className='mapvid';MV.muted=true;MV.defaultMuted=true;MV.loop=true;MV.playsInline=true;
+    MV.setAttribute('playsinline','');MV.setAttribute('muted','');MV.preload='auto';MV.poster='map.jpg.jpeg';MV.src='map-anim.mp4';
+    MV.addEventListener('error',()=>{MV=false;document.querySelectorAll('.mapvid').forEach(v=>v.remove());document.querySelector('.mapimg')?.classList.remove('vid')});
+  }
+  box.insertBefore(MV,box.querySelector('.anim'));
+  MV.addEventListener('playing',()=>box.classList.add('vid'),{once:true});
+  if(!MV.paused&&MV.readyState>2)box.classList.add('vid');
+  const p=MV.play();if(p&&p.catch)p.catch(()=>{});
+}
 async function courtMap(){
   const cs=await sb.from('cases').select(SEL).order('created_at',{ascending:false}).then(must);
   const mine=cs.filter(c=>c.plaintiff_id===me.id||c.defendant_id===me.id),cnt=k=>mine.filter(c=>(c.court||'high')===k).length;
@@ -369,6 +384,7 @@ async function courtMap(){
   ${bbSvg()}</div>
   <div class="panel"><h3 style="margin:0">${C.seal} ${C.name}</h3><p class="muted small">Hears: ${C.cats.map(k=>CATS[k]).join(', ')}</p><p class="muted small">${nx?`Appeals from here go to the ${COURTS[nx].name}.`:'This is the final court. Its verdict cannot be appealed.'}</p><button class="primary" id="fh">File a case in the ${C.name}</button></div>
   <h3>Your cases here</h3>${list.map(caseCard).join('')||'<p class="muted">None yet.</p>'}`);
+  attachVideo();
   document.querySelectorAll('[data-court]').forEach(g=>g.onclick=()=>{mapSel=g.dataset.court;courtMap()});
   $('#fh').onclick=()=>{prefCourt=mapSel;location.hash='#/new'};
 }
